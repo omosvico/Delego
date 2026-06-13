@@ -1,4 +1,5 @@
 import type { IncomingMessage } from "node:http";
+import { verifyToken } from "../src/auth/authService.js";
 
 export interface AuthContext {
   userId: string | null;
@@ -7,7 +8,6 @@ export interface AuthContext {
 
 /**
  * Extract auth context from request headers.
- * TODO: Validate JWT and resolve user identity
  */
 export function extractAuth(req: IncomingMessage): AuthContext {
   const authHeader = req.headers.authorization;
@@ -16,6 +16,11 @@ export function extractAuth(req: IncomingMessage): AuthContext {
   }
 
   const token = authHeader.slice(7);
-  // TODO: Verify JWT and decode userId
-  return { userId: null, token };
+  try {
+    const decoded = verifyToken(token);
+    return { userId: decoded.userId, token };
+  } catch (err) {
+    return { userId: null, token: null };
+  }
 }
+
