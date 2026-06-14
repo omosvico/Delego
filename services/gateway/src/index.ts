@@ -4,6 +4,7 @@
  */
 import { createLogger, startHttpServer } from "@delego/utils";
 import { registerRoutes } from "../routes/index.js";
+import { rateLimitMiddleware } from "../middleware/rateLimit.js";
 
 const SERVICE_NAME = "gateway";
 const DEFAULT_PORT = 3000;
@@ -18,5 +19,7 @@ log.info("Starting gateway", { port, nodeEnv });
 startHttpServer({
   port,
   serviceName: SERVICE_NAME,
+  middleware: [rateLimitMiddleware()],
   routes: registerRoutes(),
 });
+
