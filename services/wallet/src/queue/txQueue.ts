@@ -10,6 +10,7 @@ import {
   Networks, 
   Operation, 
   nativeToScVal,
+  Address,
   Account
 } from "@stellar/stellar-sdk";
 import type { TransactionRequest, TransactionResult } from "@delego/types";
@@ -46,6 +47,19 @@ function getStellarConfig() {
   }
 
   return { horizonUrl, rpcUrl, networkPassphrase };
+}
+
+const STELLAR_STRKEY_RE = /^[GC][A-Z2-7]{55}$/;
+
+function argToScVal(arg: unknown): ReturnType<typeof nativeToScVal> {
+  if (typeof arg === "string" && STELLAR_STRKEY_RE.test(arg)) {
+    try {
+      return Address.fromString(arg).toScVal();
+    } catch {
+      // Fall back to default encoding when strkey checksum is invalid.
+    }
+  }
+  return nativeToScVal(arg);
 }
 
 // Check if we should use MockRedis (for testing or if Redis is not configured)
@@ -161,7 +175,7 @@ async function executeTxJob(
 
   try {
     // 3. Convert arguments to ScVals
-    const scArgs = request.args.map((arg) => nativeToScVal(arg));
+    const scArgs = request.args.map((arg) => argToScVal(arg));
 
     // 4. Build draft transaction using the thread-safe sequence number
     let tx = new TransactionBuilder(account, {

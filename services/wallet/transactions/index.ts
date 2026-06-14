@@ -4,7 +4,8 @@ import {
   TransactionBuilder, 
   Networks, 
   Operation, 
-  nativeToScVal 
+  nativeToScVal,
+  Address,
 } from "@stellar/stellar-sdk";
 import type { TransactionRequest, TransactionResult } from "@delego/types";
 import { createLogger } from "@delego/utils";
@@ -40,6 +41,19 @@ function getStellarConfig() {
   return { horizonUrl, rpcUrl, networkPassphrase };
 }
 
+const STELLAR_STRKEY_RE = /^[GC][A-Z2-7]{55}$/;
+
+function argToScVal(arg: unknown): ReturnType<typeof nativeToScVal> {
+  if (typeof arg === "string" && STELLAR_STRKEY_RE.test(arg)) {
+    try {
+      return Address.fromString(arg).toScVal();
+    } catch {
+      // Fall back to default encoding when strkey checksum is invalid.
+    }
+  }
+  return nativeToScVal(arg);
+}
+
 export const transactionService: TransactionService = {
   async simulate(request: TransactionRequest): Promise<rpc.Api.SimulateTransactionResponse> {
     const { horizonUrl, rpcUrl, networkPassphrase } = getStellarConfig();
@@ -51,7 +65,7 @@ export const transactionService: TransactionService = {
     try {
       const sourceAccount = await horizonServer.loadAccount(request.sourceAddress);
       
-      const scArgs = request.args.map((arg) => nativeToScVal(arg));
+      const scArgs = request.args.map((arg) => argToScVal(arg));
       
       const tx = new TransactionBuilder(sourceAccount, {
         fee: "100",

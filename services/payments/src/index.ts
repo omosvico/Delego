@@ -1,9 +1,9 @@
 /**
  * @delego/payments — Entry point
- * TODO: Implement service logic
  */
 import { createLogger } from "@delego/utils";
 import { startHttpServer } from "@delego/utils";
+import { registerRoutes } from "./routes.js";
 
 const SERVICE_NAME = "payments";
 const DEFAULT_PORT = 3014;
@@ -18,7 +18,5 @@ log.info("Starting service", { port, nodeEnv });
 startHttpServer({
   port,
   serviceName: SERVICE_NAME,
-  routes: [],
+  routes: registerRoutes(),
 });
-
-// TODO: Wire routes, database, and domain logic
