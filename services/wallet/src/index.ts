@@ -17,8 +17,7 @@ const port = Number(process.env.WALLET_PORT ?? DEFAULT_PORT);
 
 log.info("Starting service", { port, nodeEnv });
 
-// Initialize Soroban Transaction Simulator
-const sorobanSimulator = new SorobanTransactionSimulator(SOROBAN_RPC_URL);
+export const sorobanSimulator = new SorobanTransactionSimulator(SOROBAN_RPC_URL);
 
 import { registerRoutes } from "./routes.js";
 
