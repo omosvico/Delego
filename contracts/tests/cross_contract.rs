@@ -27,7 +27,8 @@ impl TestEnv {
         let agent = Address::generate(&env);
 
         let token_admin = Address::generate(&env);
-        let token_contract_id = env.register_stellar_asset_contract_v2(token_admin.clone());
+        #[allow(deprecated)]
+        let token_contract_id = env.register_stellar_asset_contract(token_admin.clone());
         let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_contract_id);
         token_admin_client.mint(&buyer, &10000);
 
