@@ -3,14 +3,14 @@
 //! Holds funds in escrow until order fulfillment is confirmed.
 
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, contracterror, symbol_short, Address, Env, IntoVal, Symbol};
-
-const ESCROW: Symbol = symbol_short!("ESCROW");
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env,
+};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EscrowStatus {
-    Active,
+    Funded,
     Released,
     Refunded,
     Disputed,
@@ -19,12 +19,15 @@ pub enum EscrowStatus {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EscrowRecord {
+    pub escrow_id: u64,
     pub buyer: Address,
     pub seller: Address,
     pub token: Address,
     pub amount: i128,
     pub status: EscrowStatus,
-    pub unlock_time: u64,
+    pub order_id: BytesN<32>,
+    pub created_at: u64,
+    pub timeout_ledger: u32,
 }
 
 #[contracttype]
@@ -35,7 +38,8 @@ pub struct EscrowCreatedEvent {
     pub seller: Address,
     pub token: Address,
     pub amount: i128,
-    pub unlock_time: u64,
+    pub order_id: BytesN<32>,
+    pub timeout_ledger: u32,
 }
 
 #[contracttype]
@@ -147,7 +151,7 @@ pub enum EscrowError {
     AlreadyReleased = 4,
     /// Escrow has already been refunded
     AlreadyRefunded = 5,
-    /// Escrow is not in Active status
+    /// Escrow is not in Funded status
     InvalidStatus = 6,
     /// Refund timeout has not been reached
     TimeoutNotReached = 7,
@@ -401,18 +405,18 @@ impl EscrowContract {
         env.storage().instance().get(&DataKey::FeeConfig).unwrap()
     }
 
-    /// Create an escrow for an order. Supports direct funding by buyer,
-    /// or delegated funding by an agent (checked via permissions contract).
-    pub fn create_escrow(
+    /// Deposit funds into escrow for an order.
+    pub fn deposit(
         env: Env,
         buyer: Address,
-        delegate: Address,
-        permissions_contract: Address,
         seller: Address,
         token: Address,
         amount: i128,
-        timeout_seconds: u64,
+        order_id: BytesN<32>,
+        timeout_ledgers: u32,
     ) -> Result<u64, EscrowError> {
+        buyer.require_auth();
+
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
         }
@@ -423,45 +427,36 @@ impl EscrowContract {
         if amount > limits.max_amount {
             return Err(EscrowError::AmountAboveMax);
         }
-        if delegate == buyer {
-            buyer.require_auth();
-        } else {
-            delegate.require_auth();
-            // Call the permissions contract to verify and execute the delegated spend
-            // We use a dynamic client to call execute_spend on the permissions_contract
-            env.invoke_contract::<bool>(
-                &permissions_contract,
-                &Symbol::new(&env, "execute_spend"),
-                soroban_sdk::vec![
-                    &env,
-                    buyer.into_val(&env),
-                    delegate.into_val(&env),
-                    amount.into_val(&env),
-                    seller.into_val(&env)
-                ],
-            );
-        }
 
-        // Transfer tokens from buyer to this contract
         let token_client = soroban_sdk::token::Client::new(&env, &token);
         token_client.transfer(&buyer, &env.current_contract_address(), &amount);
 
-        // Increment and get last escrow ID
-        let mut last_id: u64 = env.storage().instance().get(&DataKey::LastEscrowId).unwrap_or(0);
+        let mut last_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LastEscrowId)
+            .unwrap_or(0);
         last_id += 1;
-        env.storage().instance().set(&DataKey::LastEscrowId, &last_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::LastEscrowId, &last_id);
 
-        let unlock_time = env.ledger().timestamp() + timeout_seconds;
+        let timeout_ledger = env.ledger().sequence() + timeout_ledgers;
         let record = EscrowRecord {
-            buyer,
-            seller,
-            token,
+            escrow_id: last_id,
+            buyer: buyer.clone(),
+            seller: seller.clone(),
+            token: token.clone(),
             amount,
-            status: EscrowStatus::Active,
-            unlock_time,
+            status: EscrowStatus::Funded,
+            order_id: order_id.clone(),
+            created_at: env.ledger().timestamp(),
+            timeout_ledger,
         };
 
-        env.storage().persistent().set(&DataKey::Escrow(last_id), &record);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Escrow(last_id), &record);
 
         env.events().publish(
             (symbol_short!("escrow"), symbol_short!("created")),
@@ -471,14 +466,15 @@ impl EscrowContract {
                 seller: record.seller.clone(),
                 token: record.token.clone(),
                 amount: record.amount,
-                unlock_time: record.unlock_time,
+                order_id,
+                timeout_ledger,
             },
         );
 
         Ok(last_id)
     }
 
-    /// Release funds to the seller. Only buyer or admin can call.
+    /// Release escrowed funds to the seller. Only the buyer or admin may call.
     pub fn release(env: Env, escrow_id: u64, caller: Address) -> Result<bool, EscrowError> {
         caller.require_auth();
 
@@ -496,7 +492,7 @@ impl EscrowContract {
             return Err(EscrowError::AlreadyReleased);
         }
 
-        if record.status != EscrowStatus::Active && record.status != EscrowStatus::Disputed {
+        if record.status != EscrowStatus::Funded {
             return Err(EscrowError::InvalidStatus);
         }
 
@@ -528,9 +524,8 @@ impl EscrowContract {
         Ok(true)
     }
 
-    /// Refund funds to the buyer. 
-    /// - Seller or admin can refund at any time.
-    /// - Buyer can refund only after the timeout.
+    /// Refund escrowed funds to the buyer.
+    /// Seller or admin may refund at any time; the buyer may refund after timeout.
     pub fn refund(env: Env, escrow_id: u64, caller: Address) -> Result<bool, EscrowError> {
         caller.require_auth();
 
@@ -544,24 +539,28 @@ impl EscrowContract {
             return Err(EscrowError::AlreadyRefunded);
         }
 
-        if record.status != EscrowStatus::Active && record.status != EscrowStatus::Disputed {
+        if record.status != EscrowStatus::Funded {
             return Err(EscrowError::InvalidStatus);
         }
 
+        let timeout_reached = env.ledger().sequence() >= record.timeout_ledger;
+
         if caller == record.seller || Self::is_admin(env.clone(), caller.clone()) {
-            // Authorized at any time
+            // Authorized at any time while funded.
         } else if caller == record.buyer {
-            // Buyer can refund only if timeout has passed
-            if env.ledger().timestamp() < record.unlock_time {
+            if !timeout_reached {
                 return Err(EscrowError::TimeoutNotReached);
             }
         } else {
             return Err(EscrowError::Unauthorized);
         }
 
-        // Transfer funds back to buyer
         let token_client = soroban_sdk::token::Client::new(&env, &record.token);
-        token_client.transfer(&env.current_contract_address(), &record.buyer, &record.amount);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &record.buyer,
+            &record.amount,
+        );
 
         record.status = EscrowStatus::Refunded;
         env.storage().persistent().set(&key, &record);
@@ -579,7 +578,7 @@ impl EscrowContract {
         Ok(true)
     }
 
-    /// Mark the escrow as disputed. Only buyer or seller can call.
+    /// Mark the escrow as disputed. Only the buyer or seller may call.
     pub fn dispute(env: Env, escrow_id: u64, caller: Address) -> Result<bool, EscrowError> {
         caller.require_auth();
 
@@ -593,7 +592,7 @@ impl EscrowContract {
             return Err(EscrowError::Unauthorized);
         }
 
-        if record.status != EscrowStatus::Active {
+        if record.status != EscrowStatus::Funded {
             return Err(EscrowError::InvalidStatus);
         }
 
@@ -611,8 +610,13 @@ impl EscrowContract {
         Ok(true)
     }
 
-    /// Resolve a disputed escrow. Only admin can call.
-    pub fn resolve_dispute(env: Env, escrow_id: u64, caller: Address, release_to_seller: bool) -> Result<bool, EscrowError> {
+    /// Resolve a disputed escrow. Only the admin may call.
+    pub fn resolve_dispute(
+        env: Env,
+        escrow_id: u64,
+        caller: Address,
+        release_to_seller: bool,
+    ) -> Result<bool, EscrowError> {
         caller.require_auth();
 
         if !Self::is_admin(env.clone(), caller.clone()) {
@@ -643,7 +647,11 @@ impl EscrowContract {
             token_client.transfer(&env.current_contract_address(), &record.seller, &seller_amount);
             record.status = EscrowStatus::Released;
         } else {
-            token_client.transfer(&env.current_contract_address(), &record.buyer, &record.amount);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &record.buyer,
+                &record.amount,
+            );
             record.status = EscrowStatus::Refunded;
         }
 
@@ -661,10 +669,13 @@ impl EscrowContract {
         Ok(true)
     }
 
-    /// Get details of an escrow record.
+    /// Read-only getter for escrow state.
     pub fn get_escrow(env: Env, escrow_id: u64) -> EscrowRecord {
         let key = DataKey::Escrow(escrow_id);
-        env.storage().persistent().get(&key).expect("Escrow not found")
+        env.storage()
+            .persistent()
+            .get(&key)
+            .expect("Escrow not found")
     }
 
     /// Propose a new primary admin. Must be called by current primary admin.
