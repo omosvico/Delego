@@ -405,9 +405,8 @@ impl EscrowContract {
         env.storage().instance().get(&DataKey::FeeConfig).unwrap()
     }
 
-    /// Create an escrow for an order. Supports direct funding by buyer,
-    /// or delegated funding by an agent (checked via permissions contract).
-    pub fn create_escrow(
+    /// Deposit funds into escrow for an order.
+    pub fn deposit(
         env: Env,
         buyer: Address,
         seller: Address,
@@ -427,24 +426,6 @@ impl EscrowContract {
         }
         if amount > limits.max_amount {
             return Err(EscrowError::AmountAboveMax);
-        }
-        if delegate == buyer {
-            buyer.require_auth();
-        } else {
-            delegate.require_auth();
-            // Call the permissions contract to verify and execute the delegated spend
-            // We use a dynamic client to call execute_spend on the permissions_contract
-            env.invoke_contract::<bool>(
-                &permissions_contract,
-                &Symbol::new(&env, "execute_spend"),
-                soroban_sdk::vec![
-                    &env,
-                    buyer.into_val(&env),
-                    delegate.into_val(&env),
-                    amount.into_val(&env),
-                    seller.into_val(&env)
-                ],
-            );
         }
 
         let token_client = soroban_sdk::token::Client::new(&env, &token);
@@ -503,8 +484,7 @@ impl EscrowContract {
             None => return Err(EscrowError::NotFound),
         };
 
-        let admin = Self::admin(&env)?;
-        if caller != record.buyer && caller != admin {
+        if caller != record.buyer && !Self::is_admin(env.clone(), caller.clone()) {
             return Err(EscrowError::Unauthorized);
         }
 
@@ -563,10 +543,9 @@ impl EscrowContract {
             return Err(EscrowError::InvalidStatus);
         }
 
-        let admin = Self::admin(&env)?;
         let timeout_reached = env.ledger().sequence() >= record.timeout_ledger;
 
-        if caller == record.seller || caller == admin {
+        if caller == record.seller || Self::is_admin(env.clone(), caller.clone()) {
             // Authorized at any time while funded.
         } else if caller == record.buyer {
             if !timeout_reached {
@@ -640,8 +619,7 @@ impl EscrowContract {
     ) -> Result<bool, EscrowError> {
         caller.require_auth();
 
-        let admin = Self::admin(&env)?;
-        if caller != admin {
+        if !Self::is_admin(env.clone(), caller.clone()) {
             return Err(EscrowError::Unauthorized);
         }
 
@@ -826,8 +804,9 @@ impl EscrowContract {
         let admin_list: soroban_sdk::Vec<Address> = env
             .storage()
             .instance()
-            .get(&DataKey::Admin)
-            .ok_or(EscrowError::NotFound)
+            .get(&DataKey::AdminList)
+            .unwrap_or_else(|| soroban_sdk::Vec::new(&env));
+        admin_list.contains(&address)
     }
 }
 

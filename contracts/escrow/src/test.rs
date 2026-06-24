@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod test {
-    use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+    use soroban_sdk::{testutils::Address as _, Address, Env};
     use crate::{EscrowContract, EscrowContractClient, EscrowError};
 
     #[test]
