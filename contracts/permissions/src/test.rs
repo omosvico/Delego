@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod test {
-    use soroban_sdk::{testutils::{Address as _, Events}, Address, Env, Vec, TryIntoVal};
     use crate::{PermissionsContract, PermissionsContractClient};
+    use soroban_sdk::{
+        testutils::{Address as _, Events},
+        Address, Env, TryIntoVal, Vec,
+    };
 
     #[test]
     fn test_merchant_in_whitelist_succeeds() {
@@ -223,7 +226,8 @@ mod test {
             }
             let t0: soroban_sdk::Symbol = topics.get(0).unwrap().try_into_val(&env).unwrap();
             let t1: soroban_sdk::Symbol = topics.get(1).unwrap().try_into_val(&env).unwrap();
-            if t0 == soroban_sdk::symbol_short!("perm") && t1 == soroban_sdk::symbol_short!("spent") {
+            if t0 == soroban_sdk::symbol_short!("perm") && t1 == soroban_sdk::symbol_short!("spent")
+            {
                 let evt: crate::PermissionSpendEvent = value.try_into_val(&env).unwrap();
                 assert_eq!(evt.owner, owner);
                 assert_eq!(evt.delegate, delegate);
@@ -264,7 +268,10 @@ mod test {
 
         let v = client.version();
         assert_eq!(v.name, soroban_sdk::Symbol::new(&env, crate::CONTRACT_NAME));
-        assert_eq!(v.semver, soroban_sdk::Symbol::new(&env, crate::CONTRACT_SEMVER));
+        assert_eq!(
+            v.semver,
+            soroban_sdk::Symbol::new(&env, crate::CONTRACT_SEMVER)
+        );
     }
 
     // --- Issue #105: pause / resume / get_pause_metadata tests ---
@@ -276,7 +283,7 @@ mod test {
         let owner = Address::generate(&env);
         let delegate = Address::generate(&env);
         let merchant = Address::generate(&env);
-        let admin = Address::generate(&env);
+        let _admin = Address::generate(&env);
 
         let contract_id = env.register(PermissionsContract, ());
         let client = PermissionsContractClient::new(&env, &contract_id);
@@ -297,7 +304,7 @@ mod test {
         env.mock_all_auths();
         let owner = Address::generate(&env);
         let delegate = Address::generate(&env);
-        let admin = Address::generate(&env);
+        let _admin = Address::generate(&env);
 
         let contract_id = env.register(PermissionsContract, ());
         let client = PermissionsContractClient::new(&env, &contract_id);
@@ -319,7 +326,7 @@ mod test {
         let owner = Address::generate(&env);
         let delegate = Address::generate(&env);
         let merchant = Address::generate(&env);
-        let admin = Address::generate(&env);
+        let _admin = Address::generate(&env);
 
         let contract_id = env.register(PermissionsContract, ());
         let client = PermissionsContractClient::new(&env, &contract_id);
@@ -328,7 +335,7 @@ mod test {
         client.grant(&owner, &delegate, &1000, &100, &merchants, &10000);
 
         client.pause(&owner, &delegate);
-        
+
         let res = client.try_can_spend(&owner, &delegate, &50, &merchant);
         assert!(res.is_err());
 
@@ -345,7 +352,7 @@ mod test {
         env.mock_all_auths();
         let owner = Address::generate(&env);
         let delegate = Address::generate(&env);
-        let admin = Address::generate(&env);
+        let _admin = Address::generate(&env);
 
         let contract_id = env.register(PermissionsContract, ());
         let client = PermissionsContractClient::new(&env, &contract_id);
