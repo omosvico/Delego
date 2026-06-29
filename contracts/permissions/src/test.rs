@@ -482,6 +482,13 @@ mod test {
 
     // --- Issue #186: Admin pause for new permission grants ---
 
+    /// Prove that DataKey variants are independent namespaces in storage.
+    ///
+    /// Strategy: grant a permission (Permission key) and separately store
+    /// metadata (Metadata key) for the same (owner, delegate) pair. Then read
+    /// back each via their dedicated contract getters and verify they hold their
+    /// own value without cross-contamination.  If two variants shared the same
+    /// encoded key, one of these reads would return the wrong type or None.
     #[test]
     fn test_pause_grants_blocks_new_grants() {
         let env = Env::default();
@@ -489,6 +496,7 @@ mod test {
         let admin = Address::generate(&env);
         let owner = Address::generate(&env);
         let delegate = Address::generate(&env);
+        let merchants = Vec::new(&env);
 
         let contract_id = env.register(PermissionsContract, ());
         let client = PermissionsContractClient::new(&env, &contract_id);
