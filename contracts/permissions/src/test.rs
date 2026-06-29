@@ -482,13 +482,6 @@ mod test {
 
     // --- Issue #186: Admin pause for new permission grants ---
 
-    /// Prove that DataKey variants are independent namespaces in storage.
-    ///
-    /// Strategy: grant a permission (Permission key) and separately store
-    /// metadata (Metadata key) for the same (owner, delegate) pair. Then read
-    /// back each via their dedicated contract getters and verify they hold their
-    /// own value without cross-contamination.  If two variants shared the same
-    /// encoded key, one of these reads would return the wrong type or None.
     #[test]
     fn test_pause_grants_blocks_new_grants() {
         let env = Env::default();
@@ -496,7 +489,6 @@ mod test {
         let admin = Address::generate(&env);
         let owner = Address::generate(&env);
         let delegate = Address::generate(&env);
-        let merchants = Vec::<Address>::new(&env);
 
         let contract_id = env.register(PermissionsContract, ());
         let client = PermissionsContractClient::new(&env, &contract_id);
@@ -755,9 +747,8 @@ mod test {
                 found = true;
             }
         }
-        #[test]
-#[ignore]
-fn test_allowance_decreased_event_emitted() {
+        assert!(found, "AllowanceDecreasedEvent not found in events");
+    }
 
     #[test]
     fn test_allowance_decreased_event_correct_values() {
@@ -792,13 +783,6 @@ fn test_allowance_decreased_event_emitted() {
 
     // ── Issue #185: Storage Key Namespace Tests ───────────────────────────────
 
-    /// Prove that DataKey variants are independent namespaces in storage.
-    ///
-    /// Strategy: grant a permission (Permission key) and separately store
-    /// metadata (Metadata key) for the same (owner, delegate) pair. Then read
-    /// back each via their dedicated contract getters and verify they hold their
-    /// own value without cross-contamination. If two variants shared the same
-    /// encoded key, one of these reads would return the wrong type or None.
     #[test]
     fn test_storage_key_namespace_distinct_variants() {
         let env = Env::default();
@@ -909,7 +893,6 @@ fn test_allowance_decreased_event_emitted() {
         assert!(result.is_ok(), "Non-self delegation should succeed");
     }
 
-    /// Self-delegation must succeed when admin explicitly enables it via config.
     #[test]
     fn test_self_delegation_allowed_when_config_enabled() {
         let env = Env::default();
@@ -931,7 +914,6 @@ fn test_allowance_decreased_event_emitted() {
         );
     }
 
-    /// Non-admin must not be able to enable self-delegation.
     #[test]
     fn test_set_allow_self_delegation_unauthorized() {
         let env = Env::default();
@@ -997,7 +979,6 @@ fn test_allowance_decreased_event_emitted() {
         assert!(!receipt.active, "Revoked permission should not be active");
     }
 
-    /// Receipt.active must be false once the TTL ledger has passed.
     #[test]
     fn test_receipt_for_expired_permission_is_inactive() {
         let env = Env::default();
@@ -1101,7 +1082,6 @@ fn test_allowance_decreased_event_emitted() {
         assert!(stored.is_none(), "No metadata should be stored when None is passed");
     }
 
-    /// Stale metadata must be cleared when a permission is re-granted with None.
     #[test]
     fn test_regrant_with_none_clears_stale_metadata() {
         let env = Env::default();
